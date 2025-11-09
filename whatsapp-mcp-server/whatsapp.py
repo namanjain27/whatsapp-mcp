@@ -9,7 +9,7 @@ import audio
 
 MESSAGES_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'whatsapp-bridge', 'store', 'messages.db')
 WHATSAPP_API_BASE_URL = "http://localhost:8080/api"
-
+WHATSAPP_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'whatsapp-bridge', 'store', 'whatsapp.db')
 @dataclass
 class Message:
     timestamp: datetime
@@ -393,23 +393,41 @@ def list_chats(
 def search_contacts(query: str) -> List[Contact]:
     """Search contacts by name or phone number."""
     try:
-        conn = sqlite3.connect(MESSAGES_DB_PATH)
+        conn = sqlite3.connect(WHATSAPP_DB_PATH)
         cursor = conn.cursor()
         
-        # Split query into characters to support partial matching
-        search_pattern = '%' +query + '%'
+        # # Split query into characters to support partial matching
+        # search_pattern = '%' +query + '%'
         
+        # cursor.execute("""
+        #     SELECT DISTINCT 
+        #         jid,
+        #         name
+        #     FROM chats
+        #     WHERE 
+        #         (LOWER(name) LIKE LOWER(?) OR LOWER(jid) LIKE LOWER(?))
+        #         AND jid NOT LIKE '%@g.us'
+        #     ORDER BY name, jid
+        #     LIMIT 50
+        # """, (search_pattern, search_pattern))
+         # Search pattern for partial matching
+        search_pattern = f'%{query}%'
+        
+        # Query whatsmeow_contacts table
+        # Typical columns: jid, full_name, first_name, push_name
         cursor.execute("""
             SELECT DISTINCT 
-                jid,
-                name
-            FROM chats
+                their_jid,
+                COALESCE(full_name, first_name, push_name, '') as name
+            FROM whatsmeow_contacts
             WHERE 
-                (LOWER(name) LIKE LOWER(?) OR LOWER(jid) LIKE LOWER(?))
-                AND jid NOT LIKE '%@g.us'
-            ORDER BY name, jid
+                (LOWER(COALESCE(full_name, first_name, push_name, '')) LIKE LOWER(?)
+                 OR LOWER(their_jid) LIKE LOWER(?))
+                AND their_jid NOT LIKE '%@g.us'
+            ORDER BY COALESCE(full_name, first_name, push_name, their_jid), their_jid
             LIMIT 50
         """, (search_pattern, search_pattern))
+        
         
         contacts = cursor.fetchall()
         
