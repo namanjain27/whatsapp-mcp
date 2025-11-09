@@ -15,6 +15,7 @@ from whatsapp import (
     send_file as whatsapp_send_file,
     send_audio_message as whatsapp_audio_voice_message,
     download_media as whatsapp_download_media,
+    send_bulk_messages as whatsapp_send_bulk_messages,
     Contact,
     Chat,
     Message,
@@ -267,6 +268,69 @@ def download_media(message_id: str, chat_jid: str) -> Dict[str, Any]:
         return {
             "success": False,
             "message": "Failed to download media"
+        }
+
+@mcp.tool()
+def send_bulk_messages(
+    file_path: str,
+    mobile_number_column: str = "mobile_number",
+    message_column: str = "message",
+    file_type: Optional[str] = None
+) -> Dict[str, Any]:
+    """Send bulk WhatsApp messages from a CSV or Excel file with template replacement.
+    
+    Reads a spreadsheet file and sends personalized messages to each recipient.
+    The message template can contain {{field_name}} placeholders that will be replaced
+    with values from the corresponding column in the same row.
+    
+    The phone numbers don't need to be saved in your contacts - they can be any valid
+    phone number with country code (no + or other symbols, e.g., "918889167178").
+    
+    Args:
+        file_path: Absolute path to the CSV or Excel file
+        mobile_number_column: Name of the column containing phone numbers (default: "mobile_number")
+        message_column: Name of the column containing message templates (default: "message")
+        file_type: 'csv' or 'excel'. If None, inferred from file extension
+    
+    Returns:
+        A dictionary containing:
+        - success: Overall success status (True if at least one message was sent successfully)
+        - total_rows: Total number of rows processed
+        - successful: Number of successfully sent messages
+        - failed: Number of failed messages
+        - results: List of results for each row with row number, success status, and details
+    
+    Example CSV format:
+        mobile_number,name,message
+        918889167178,John,Hi {{name}}, this is a test message
+        919876543210,Jane,Hello {{name}}! Your number is {{mobile_number}}
+    """
+    try:
+        results = whatsapp_send_bulk_messages(
+            file_path=file_path,
+            mobile_number_column=mobile_number_column,
+            message_column=message_column,
+            file_type=file_type
+        )
+        
+        successful = sum(1 for r in results if r.get("success", False))
+        failed = len(results) - successful
+        
+        return {
+            "success": successful > 0,
+            "total_rows": len(results),
+            "successful": successful,
+            "failed": failed,
+            "results": results
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error processing bulk messages: {str(e)}",
+            "total_rows": 0,
+            "successful": 0,
+            "failed": 0,
+            "results": []
         }
 
 if __name__ == "__main__":

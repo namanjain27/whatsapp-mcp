@@ -17,7 +17,8 @@ from main import (
     send_message,
     send_file,
     send_audio_message,
-    download_media
+    download_media,
+    send_bulk_messages
 )
 
 
@@ -294,6 +295,13 @@ def test_download_media(message_id: str, chat_jid: str):
         print(f"ERROR: {e}")
         return None
 
+def test_bulk_send_message(file_path:str):
+    if(not file_path):
+        return "no file given"
+    result = send_bulk_messages(file_path)
+    print(result)
+    return result
+
 
 def run_all_tests():
     """Run all tests with default/sample values."""
@@ -358,6 +366,9 @@ if __name__ == "__main__":
         if test_name == "search_contacts":
             query = sys.argv[2] if len(sys.argv) > 2 else ""
             test_search_contacts(query)
+        elif test_name == "bulk_send_message":
+            file_path = sys.argv[2] if len(sys.argv) > 2 else ""
+            test_bulk_send_message(file_path)
         elif test_name == "list_messages":
             test_list_messages(limit=5)
         elif test_name == "list_chats":

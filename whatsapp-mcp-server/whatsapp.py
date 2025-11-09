@@ -1,11 +1,13 @@
 import sqlite3
 from datetime import datetime
 from dataclasses import dataclass
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 import os.path
 import requests
 import json
 import audio
+import csv
+import re
 
 MESSAGES_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'whatsapp-bridge', 'store', 'messages.db')
 WHATSAPP_API_BASE_URL = "http://localhost:8080/api"
@@ -783,3 +785,133 @@ def download_media(message_id: str, chat_jid: str) -> Optional[str]:
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
         return None
+
+def replace_template_variables(message: str, row_data: Dict[str, Any]) -> str:
+    """Replace {{field_name}} with values from row_data.
+    
+    Args:
+        message: Message template with {{field_name}} placeholders
+        row_data: Dictionary with field names as keys and values to replace
+    
+    Returns:
+        Message with placeholders replaced
+    """
+    def replace_match(match):
+        field_name = match.group(1)
+        value = row_data.get(field_name, '')
+        # Convert to string, handle None
+        return str(value) if value is not None else ''
+    
+    return re.sub(r'\{\{(\w+)\}\}', replace_match, message)
+
+def send_bulk_messages(
+    file_path: str,
+    mobile_number_column: str = "mobile_number",
+    message_column: str = "message",
+    file_type: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """Send bulk messages from CSV or Excel file with template replacement.
+    
+    Args:
+        file_path: Path to CSV or Excel file
+        mobile_number_column: Name of the column containing phone numbers
+        message_column: Name of the column containing message templates
+        file_type: 'csv' or 'excel'. If None, inferred from file extension
+    
+    Returns:
+        List of results with success status and details for each row
+    """
+    results = []
+    
+    # Determine file type
+    if file_type is None:
+        file_ext = os.path.splitext(file_path)[1].lower()
+        if file_ext in ['.xlsx', '.xls']:
+            file_type = 'excel'
+        elif file_ext == '.csv':
+            file_type = 'csv'
+        else:
+            raise ValueError(f"Unsupported file type: {file_ext}. Use .csv, .xlsx, or .xls")
+    
+    if not os.path.isfile(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+    
+    try:
+        if file_type == 'csv':
+            # Read CSV file
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+        elif file_type == 'excel':
+            # Try to import pandas, raise error if not available
+            try:
+                import pandas as pd
+            except ImportError:
+                raise ImportError("pandas is required for Excel file support. Install it with: pip install pandas openpyxl")
+            
+            df = pd.read_excel(file_path)
+            # Convert DataFrame to list of dicts
+            rows = df.to_dict('records')
+        else:
+            raise ValueError(f"Unsupported file type: {file_type}")
+        
+        # Process each row
+        for row_num, row in enumerate(rows, start=2):  # Start at 2 (row 1 is header)
+            try:
+                # Get mobile number
+                mobile_number = str(row.get(mobile_number_column, '')).strip()
+                if not mobile_number or mobile_number.lower() in ['nan', 'none', '']:
+                    results.append({
+                        "row": row_num,
+                        "success": False,
+                        "message": f"No mobile_number found in column '{mobile_number_column}'",
+                        "mobile_number": None
+                    })
+                    continue
+                
+                # Get message template
+                message_template = str(row.get(message_column, '')).strip()
+                if not message_template or message_template.lower() in ['nan', 'none', '']:
+                    results.append({
+                        "row": row_num,
+                        "success": False,
+                        "message": f"No message template found in column '{message_column}'",
+                        "mobile_number": mobile_number
+                    })
+                    continue
+                
+                # Replace template variables
+                # Convert row to dict if it's not already (handles pandas Series)
+                if hasattr(row, 'to_dict'):
+                    row_dict = row.to_dict()
+                else:
+                    row_dict = dict(row)
+                
+                # Convert all values to strings for template replacement
+                row_dict = {k: str(v) if v is not None else '' for k, v in row_dict.items()}
+                
+                personalized_message = replace_template_variables(message_template, row_dict)
+                
+                # Send message
+                success, status = send_message(mobile_number, personalized_message)
+                
+                results.append({
+                    "row": row_num,
+                    "success": success,
+                    "message": status,
+                    "mobile_number": mobile_number,
+                    "personalized_message": personalized_message if success else None
+                })
+                
+            except Exception as e:
+                results.append({
+                    "row": row_num,
+                    "success": False,
+                    "message": f"Error processing row: {str(e)}",
+                    "mobile_number": str(row.get(mobile_number_column, '')).strip() if row else None
+                })
+        
+        return results
+        
+    except Exception as e:
+        raise Exception(f"Error reading file: {str(e)}")

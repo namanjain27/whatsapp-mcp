@@ -1,3 +1,5 @@
 *.db
 claude_desktop_config.json
 whatsapp.log
+whatsapp-mcp-server/uv.lock
+whatsapp-mcp-server/pyproject.toml
